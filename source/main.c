@@ -36,13 +36,13 @@ int main(int argc, char** argv)
 #define F2DOT14 int16_t
 #define LONGDATETIME int64_t
 #define Offset8 uint8_t
-#define OFfset16 uint16_t
+#define Offset16 uint16_t
 //for Offset24 we'll just have 1 Offset16 and 1 Offset8
 #define Offset32 uint32_t
 //#define Version16Dot16 int32_t //just use 2 seperate uint16_t too
 
 //from big endian to little endian
-uint32_t to_le32(uint32_t value) {
+uint32_t to_leu32(uint32_t value) {
 	return ((value & 0xFF000000) >> 24) |
 		((value & 0x00FF0000) >> 8) |
 		((value & 0x0000FF00) << 8) |
@@ -50,8 +50,21 @@ uint32_t to_le32(uint32_t value) {
 }
 
 //from big endian to little endian
-uint16_t to_le16(uint16_t value) {
+uint16_t to_leu16(uint16_t value) {
 	return (value >> 8) | (value << 8);
+}
+
+int16_t to_le16(int16_t value) {
+	return (value << 8) | ((value >> 8) & 0xFF);
+}
+
+int32_t to_le32(int32_t value) {
+	uint32_t uvalue = (uint32_t)value;
+	uvalue = ((uvalue >> 24) & 0x000000FF) |
+		((uvalue >> 8) & 0x0000FF00) |
+		((uvalue << 8) & 0x00FF0000) |
+		((uvalue << 24) & 0xFF000000);
+	return (int32_t)uvalue;
 }
 
 
@@ -152,6 +165,14 @@ typedef struct
 
 typedef struct
 {
+	void* offsets;
+	int offsets_size;
+	int offset_size; //either 2 bytes or 4 bytes. Offset16 or Offset32
+} t_loca;
+
+
+typedef struct
+{
 	char tag[4];
 	uint32_t checksum;
 	Offset32 offset;
@@ -170,6 +191,8 @@ typedef struct
 //The values are not converted from big endian to little endian automatically. before using an offset or something use to_le32 or whatever
 
 //for reading tables with a constant size
+
+//TODO(omar): add a function pointer to call a specific function that loads a table if needed
 static void read_const_ttf_table(FILE* fp, table_record* record, void* table, size_t size)
 {
 	char str_tag[5];
@@ -178,7 +201,7 @@ static void read_const_ttf_table(FILE* fp, table_record* record, void* table, si
 	printf("Reading '%s' table\n", str_tag);
 
 	long current_offset = ftell(fp);
-	fseek(fp, to_le32(record->offset), SEEK_SET);
+	fseek(fp, to_leu32(record->offset), SEEK_SET);
 	fread(table, size, 1, fp);
 
 	fseek(fp, current_offset, SEEK_SET);
@@ -194,7 +217,7 @@ void load_ttf(const char* path)
 
 	table_directory td;
 	fread(&td, sizeof(table_directory), 1, fp);
-	td.num_tables = to_le16(td.num_tables);
+	td.num_tables = to_leu16(td.num_tables);
 	printf("NUM TABLES: %hu\n", td.num_tables);
 
 	const const char* table_order[] =
@@ -202,7 +225,8 @@ void load_ttf(const char* path)
 		"head",
 		"maxp",
 		"hhea",
-		"hmtx"
+		"hmtx",
+		"loca"
 	};
 	const int table_count = sizeof(table_order) / sizeof(const char*);
 
@@ -210,6 +234,7 @@ void load_ttf(const char* path)
 	t_maxp maxp;
 	t_hhea hhea;
 	t_hmtx hmtx = {0};
+	t_loca loca = {0};
 
 	long table_records_offset = ftell(fp);
 
@@ -223,6 +248,7 @@ void load_ttf(const char* path)
 			char str_tag[5];
 			memcpy(str_tag, record.tag, 4);
 			str_tag[4] = 0;
+			//printf("%s\n", str_tag);
 
 			if (SDL_strcmp(str_tag, table_order[i]) == 0)
 			{
@@ -242,23 +268,62 @@ void load_ttf(const char* path)
 				{
 					printf("Reading '%s' table\n", str_tag);
 					long current_offset = ftell(fp);
-					fseek(fp, to_le32(record.offset), SEEK_SET);
+					fseek(fp, to_leu32(record.offset), SEEK_SET);
 
-					for (int i = 0; i < to_le16(hhea.num_of_long_hor_metrics); i++)
+					for (int i = 0; i < to_leu16(hhea.num_of_long_hor_metrics); i++)
 					{
+						FWORD left_side_bearing;
+						fread_s(&left_side_bearing, sizeof(FWORD), sizeof(FWORD), 1, fp);
+						left_side_bearing = to_le16(left_side_bearing);
 						h_metric metric = {
-							to_le16(fgetwc(fp)),
-							to_le16(fgetwc(fp))
+							to_leu16(fgetwc(fp)),
+							left_side_bearing
 						};
 						array_push(&(hmtx.metrics), &(hmtx.metrics_size), sizeof(h_metric), &metric);
 					}
 
-					int loop_count = to_le16(maxp.num_glyphs) - to_le16(hhea.num_of_long_hor_metrics);
+					int loop_count = to_leu16(maxp.num_glyphs) - to_leu16(hhea.num_of_long_hor_metrics);
 					for (int i = 0; i < loop_count; i++)
 					{
 						FWORD left_side_bearing;
 						fread_s(&left_side_bearing, sizeof(FWORD), sizeof(FWORD), 1, fp);
+						left_side_bearing = to_le16(left_side_bearing);
+
 						array_push(&(hmtx.left_side_bearing), &(hmtx.left_side_bearing_size), sizeof(FWORD), &left_side_bearing);
+					}
+
+					fseek(fp, current_offset, SEEK_SET);
+				}
+				else if (SDL_strcmp(str_tag, "loca") == 0)
+				{
+					printf("Reading '%s' table\n", str_tag);
+					long current_offset = ftell(fp);
+					fseek(fp, to_leu32(record.offset), SEEK_SET);
+
+					if (to_le16(head.index_to_loc_format) == 0)
+					{
+						loca.offset_size = 2;
+					}
+					else
+					{
+						loca.offset_size = 4;
+					}
+
+					for (int i = 0; i < to_leu16(maxp.num_glyphs) + 1; i++)
+					{
+						if (loca.offset_size == 2)
+						{
+							Offset16 offset = fgetwc(fp);
+							offset = to_leu16(offset);
+							array_push(&(loca.offsets), &(loca.offsets_size), loca.offset_size, &offset);
+						}
+						else
+						{
+							Offset32 offset;
+							fread_s(&offset, sizeof(Offset32), sizeof(Offset32), 1, fp);
+							offset = to_leu32(offset);
+							array_push(&(loca.offsets), &(loca.offsets_size), loca.offset_size, &offset);
+						}
 					}
 
 					fseek(fp, current_offset, SEEK_SET);
