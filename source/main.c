@@ -194,6 +194,7 @@ void load_ttf(const char* path)
 
 	table_directory td;
 	fread(&td, sizeof(table_directory), 1, fp);
+	td.num_tables = to_le16(td.num_tables);
 	printf("NUM TABLES: %hu\n", td.num_tables);
 
 	const const char* table_order[] =
@@ -264,7 +265,7 @@ void load_ttf(const char* path)
 				}
 
 				//start looking for the next table in table_order
-				j = td.num_tables + 1;
+				break;
 			}
 		}
 
