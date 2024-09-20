@@ -74,6 +74,14 @@ typedef struct
 	FWORD left_side_bearing;
 } h_metric;
 
+typedef struct
+{
+	int16_t number_of_contours;
+	int16_t xmin;
+	int16_t ymin;
+	int16_t xmax;
+	int16_t ymax;
+} glyph_header;
 
 //t_ stands for table
 typedef struct
@@ -173,6 +181,13 @@ typedef struct
 
 typedef struct
 {
+	glyph_header* glyphs;
+	int glyphs_size;
+} t_glyf;
+
+
+typedef struct
+{
 	char tag[4];
 	uint32_t checksum;
 	Offset32 offset;
@@ -226,7 +241,8 @@ void load_ttf(const char* path)
 		"maxp",
 		"hhea",
 		"hmtx",
-		"loca"
+		"loca",
+		"glyf"
 	};
 	const int table_count = sizeof(table_order) / sizeof(const char*);
 
@@ -235,6 +251,7 @@ void load_ttf(const char* path)
 	t_hhea hhea;
 	t_hmtx hmtx = {0};
 	t_loca loca = {0};
+	t_glyf glyf = { 0 };
 
 	long table_records_offset = ftell(fp);
 
@@ -326,6 +343,40 @@ void load_ttf(const char* path)
 						}
 					}
 
+					fseek(fp, current_offset, SEEK_SET);
+				}
+				else if (SDL_strcmp(str_tag, "glyf") == 0)
+				{
+					printf("Reading '%s' table\n", str_tag);
+					long current_offset = ftell(fp);
+					fseek(fp, to_leu32(record.offset), SEEK_SET);
+
+					int loca_count = loca.offsets_size / loca.offset_size;
+					for (int i = 0; i < loca_count - 1; i++)
+					{
+						Offset32 offset;
+						if (loca.offset_size == 2)
+						{
+							offset = ((Offset16*)loca.offsets)[i];
+							offset = to_leu16(offset);
+
+							if (head.index_to_loc_format == 0)
+							{
+								offset *= 2;
+							}
+						}
+						else
+						{
+							offset = ((Offset32*)loca.offsets)[i];
+							offset = to_leu32(offset);
+						}
+						fseek(fp, record.offset + offset, SEEK_SET);
+
+						glyph_header glyph;
+						fread_s(&glyph, sizeof(glyph_header), sizeof(glyph_header), 1, fp);
+
+						array_push(&(glyf.glyphs), &(glyf.glyphs_size), sizeof(glyph_header), &glyph);
+					}
 					fseek(fp, current_offset, SEEK_SET);
 				}
 
