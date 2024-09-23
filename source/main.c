@@ -83,6 +83,13 @@ typedef struct
 	int16_t ymax;
 } glyph_header;
 
+typedef struct
+{
+	uint16_t platform_id;
+	uint16_t encoding_id;
+	Offset32 offset;
+} encoding_record;
+
 //t_ stands for table
 typedef struct
 {
@@ -188,6 +195,17 @@ typedef struct
 
 typedef struct
 {
+	uint16_t version;
+	uint16_t num_tables;
+	encoding_record* e_records;
+
+	//NOTT PART OF SPEC
+	int e_records_size;
+} t_cmap;
+
+
+typedef struct
+{
 	char tag[4];
 	uint32_t checksum;
 	Offset32 offset;
@@ -242,7 +260,8 @@ void load_ttf(const char* path)
 		"hhea",
 		"hmtx",
 		"loca",
-		"glyf"
+		"glyf",
+		"cmap"
 	};
 	const int table_count = sizeof(table_order) / sizeof(const char*);
 
@@ -252,6 +271,7 @@ void load_ttf(const char* path)
 	t_hmtx hmtx = {0};
 	t_loca loca = {0};
 	t_glyf glyf = { 0 };
+	t_cmap cmap = { 0 };
 
 	long table_records_offset = ftell(fp);
 
@@ -379,8 +399,34 @@ void load_ttf(const char* path)
 					}
 					fseek(fp, current_offset, SEEK_SET);
 				}
+				else if (SDL_strcmp(str_tag, "cmap") == 0)
+				{
+					printf("Reading '%s' table\n", str_tag);
+					long current_offset = ftell(fp);
+					fseek(fp, to_leu32(record.offset), SEEK_SET);
+
+					fread_s(&(cmap.version), sizeof(uint16_t), sizeof(uint16_t), 1, fp);
+					fread_s(&(cmap.num_tables), sizeof(uint16_t), sizeof(uint16_t), 1, fp);
+					//printf("	cmap.version = %u", to_leu16(cmap.version));
+
+					if (cmap.version != 0)
+					{
+						printf("ERROR: cmap.version is %u. only version 0 is supported", cmap.version);
+						goto pass_table;
+					}
+					
+					for (int i = 0; i < to_leu16(cmap.num_tables); i++)
+					{
+						encoding_record e_record;
+						fread_s(&e_record, sizeof(encoding_record), sizeof(encoding_record), 1, fp);
+						array_push(&(cmap.e_records), &(cmap.e_records_size), sizeof(encoding_record), &e_record);
+					}
+
+					fseek(fp, current_offset, SEEK_SET);
+				}
 
 				//start looking for the next table in table_order
+				pass_table:
 				break;
 			}
 		}
@@ -388,6 +434,12 @@ void load_ttf(const char* path)
 		fseek(fp, table_records_offset, SEEK_SET);
 	}
 
+
+	if (cmap.e_records) free(cmap.e_records);
+	if (loca.offsets) free(loca.offsets);
+	if (glyf.glyphs) free(glyf.glyphs);
+	if (hmtx.left_side_bearing) free(hmtx.left_side_bearing);
+	if (hmtx.metrics) free(hmtx.metrics);
 	fclose(fp);
 }
 
