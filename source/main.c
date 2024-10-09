@@ -206,6 +206,35 @@ typedef struct
 
 typedef struct
 {
+    uint16_t end_code;
+    uint16_t start_code;
+    
+    int16_t id_delta;
+    uint16_t id_range_offset;
+} format4_segment;
+
+
+typedef struct
+{
+    uint16_t format;
+    uint16_t length;
+    uint16_t language;
+    
+    uint16_t seg_count; //stored doubled. halved while reading
+    
+    uint16_t search_range;
+    uint16_t entry_selector;
+    uint16_t range_shift;
+    
+    format4_segment* segments;
+    int segments_size;
+    
+    uint16_t* glyph_ids;
+} format4;
+
+
+typedef struct
+{
 	char tag[4];
 	uint32_t checksum;
 	Offset32 offset;
@@ -251,7 +280,7 @@ void load_ttf(const char* path)
 	table_directory td;
 	fread(&td, sizeof(table_directory), 1, fp);
 	td.num_tables = to_leu16(td.num_tables);
-	printf("NUM TABLES: %hu\n", td.num_tables);
+	printf("NUM TABLES: %hu\n\n", td.num_tables);
     
 	const const char* table_order[] =
 	{
@@ -429,6 +458,7 @@ void load_ttf(const char* path)
                         
                         printf("    Offset: %u\n", to_leu32(e_record.offset));
 					}
+                    printf("\n");
                     
                     Offset32 selected_offset = -1;
                     for (int i = 0; i < to_leu16(cmap.num_tables); i++)
@@ -479,16 +509,71 @@ void load_ttf(const char* path)
                     
                     if (selected_offset == -1)
                     {
+                        
                         printf("ERROR: The font doesn't contain a recognized platform and encoding. Loading failed.\n");
                         goto destroy_everything;
                     }
                     else
                     {
-                        printf("  Selected offset is: %u\n", selected_offset);
+                        printf("    Selected offset is: %u\n", selected_offset);
                     }
                     
-                    fseek(fp, current_offset, SEEK_SET);
+                    uint16_t format_id;
+                    fread_s(&format_id, sizeof(uint16_t), sizeof(uint16_t), 1, fp);
+                    format_id = to_leu16(format_id);
+                    if (format_id != 4)
+                    {
+                        printf("ERROR: Unsupported format '%u'. Required '4'\n",
+                               format_id);
+                        goto destroy_everything;
+                    }
+                    printf("    Format is: %u\n", format_id);
                     
+                    format4 format =
+                    {
+                        format_id,
+                        to_leu16(fgetwc(fp)),
+                        to_leu16(fgetwc(fp)),
+                        to_leu16(fgetwc(fp)),
+                        
+                        to_leu16(fgetwc(fp)),
+                        to_leu16(fgetwc(fp)),
+                        to_leu16(fgetwc(fp)),
+                        
+                        0,
+                        0,
+                        0
+                    };
+                    format.seg_count /= 2;
+                    
+                    format.segments_size = sizeof(format4_segment) * format.seg_count;
+                    format.segments = malloc(format.segments_size);
+                    
+                    for (int i = 0; i < format.seg_count; i++)
+                    {
+                        format.segments[i].end_code = to_leu16(fgetwc(fp));
+                    }
+                    
+                    fgetwc(fp); //reserved pad
+                    
+                    for (int i = 0; i < format.seg_count; i++)
+                    {
+                        format.segments[i].start_code = to_leu16(fgetwc(fp));
+                    }
+                    
+                    for (int i = 0; i < format.seg_count; i++)
+                    {
+                        format.segments[i].id_delta = to_leu16(fgetwc(fp));
+                    }
+                    
+                    const long id_range_offset_start = ftell(fp);
+                    for (int i = 0; i < format.seg_count; i++)
+                    {
+                        format.segments[i].id_range_offset = to_leu16(fgetwc(fp));
+                    }
+                    
+                    
+                    fseek(fp, current_offset, SEEK_SET);
                     goto pass_table;
 				}
                 
