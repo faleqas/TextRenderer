@@ -230,6 +230,7 @@ typedef struct
     int segments_size;
     
     uint16_t* glyph_ids;
+	int glyphs_ids_size;
 } format4;
 
 
@@ -563,7 +564,7 @@ void load_ttf(const char* path)
                     
                     for (int i = 0; i < format.seg_count; i++)
                     {
-                        format.segments[i].id_delta = to_leu16(fgetwc(fp));
+                        format.segments[i].id_delta = to_le16(fgetwc(fp));
                     }
                     
                     const long id_range_offset_start = ftell(fp);
@@ -571,6 +572,39 @@ void load_ttf(const char* path)
                     {
                         format.segments[i].id_range_offset = to_leu16(fgetwc(fp));
                     }
+
+					for (int i = 0; i < format.seg_count; i++)
+					{
+						const format4_segment* segment = format.segments + i;
+						printf("Segment: %u, %u, %u, %u\n",
+							segment->start_code, segment->end_code, segment->id_delta, segment->id_range_offset);
+
+						uint16_t glyph_index;
+
+						for (int c = segment->start_code; c < segment->end_code; c++)
+						{
+							if (segment->id_range_offset != 0)
+							{
+								const int start_code_offset = (c - segment->start_code) * 2;
+								const int current_range_offset = i * 2;
+
+								const int glyph_index_offset =
+									id_range_offset_start +    // where all offsets started
+									current_range_offset +     // offset for the current range
+									segment->id_range_offset + // offset between the id range table and the glyphIdArray[]
+									start_code_offset;         // gets us finally to the character
+
+								fseek(fp, glyph_index_offset, SEEK_SET);
+								fread_s(&glyph_index, sizeof(uint16_t), sizeof(uint16_t), 1, fp);
+							}
+							else
+							{
+								glyph_index = (c + segment->id_delta) & 0xffff;
+							}
+
+							array_push(&(format.glyph_ids), &(format.glyphs_ids_size), sizeof(uint16_t), &glyph_index);
+						}
+					}
                     
                     
                     fseek(fp, current_offset, SEEK_SET);
