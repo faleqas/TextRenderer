@@ -4,6 +4,7 @@
 
 #include <SDL2/SDL.h>
 
+#include "hash_table.h"
 #include "dynamic_array.h"
 
 static bool running = true;
@@ -15,10 +16,15 @@ void main_loop();
 
 int main(int argc, char** argv)
 {
-	int* arr = NULL;
-	int arr_size = 0;
-    
-	printf("\n");
+	hash_table ht = {0, 10};
+	hashtable_insert(&ht, 'a', 1);
+	hashtable_insert(&ht, 'b', 1);
+	hashtable_insert(&ht, 'c', 1);
+	hashtable_insert(&ht, 'd', 1);
+	hashtable_insert(&ht, 'e', 1);
+	hashtable_insert(&ht, 'f', 1);
+	hashtable_insert(&ht, 'g', 1);
+
     
     SDL_Init(0);
     
@@ -229,10 +235,14 @@ typedef struct
     format4_segment* segments;
     int segments_size;
     
-    uint16_t* glyph_ids;
-	int glyphs_ids_size;
+    uint16_t* glyph_indices;
+	int glyph_indices_size;
 } format4;
 
+//typedef struct
+//{
+//
+//} spacing_info;
 
 typedef struct
 {
@@ -302,6 +312,8 @@ void load_ttf(const char* path)
 	t_loca loca = {0};
 	t_glyf glyf = { 0 };
 	t_cmap cmap = { 0 };
+	
+	format4 format = { 0 };
     
 	long table_records_offset = ftell(fp);
     
@@ -530,21 +542,33 @@ void load_ttf(const char* path)
                     }
                     printf("    Format is: %u\n", format_id);
                     
-                    format4 format =
-                    {
-                        format_id,
-                        to_leu16(fgetwc(fp)),
-                        to_leu16(fgetwc(fp)),
-                        to_leu16(fgetwc(fp)),
-                        
-                        to_leu16(fgetwc(fp)),
-                        to_leu16(fgetwc(fp)),
-                        to_leu16(fgetwc(fp)),
-                        
-                        0,
-                        0,
-                        0
-                    };
+					//typedef struct
+					//{
+					//	uint16_t format;
+					//	uint16_t length;
+					//	uint16_t language;
+
+					//	uint16_t seg_count; //stored doubled. halved while reading
+
+					//	uint16_t search_range;
+					//	uint16_t entry_selector;
+					//	uint16_t range_shift;
+
+					//	format4_segment* segments;
+					//	int segments_size;
+
+					//	uint16_t* glyph_ids;
+					//	int glyphs_ids_size;
+					//} format4;
+
+
+					format.format = format_id;
+					format.length = to_leu16(fgetwc(fp));
+					format.language = to_leu16(fgetwc(fp));
+					format.seg_count = to_leu16(fgetwc(fp));
+					format.search_range = to_leu16(fgetwc(fp));
+					format.entry_selector = to_leu16(fgetwc(fp));
+					format.range_shift = to_leu16(fgetwc(fp));
                     format.seg_count /= 2;
                     
                     format.segments_size = sizeof(format4_segment) * format.seg_count;
@@ -576,8 +600,6 @@ void load_ttf(const char* path)
 					for (int i = 0; i < format.seg_count; i++)
 					{
 						const format4_segment* segment = format.segments + i;
-						printf("Segment: %u, %u, %u, %u\n",
-							segment->start_code, segment->end_code, segment->id_delta, segment->id_range_offset);
 
 						uint16_t glyph_index;
 
@@ -596,17 +618,25 @@ void load_ttf(const char* path)
 
 								fseek(fp, glyph_index_offset, SEEK_SET);
 								fread_s(&glyph_index, sizeof(uint16_t), sizeof(uint16_t), 1, fp);
+
+								if (glyph_index != 0)
+								{
+									glyph_index = (glyph_index + segment->id_delta) & 0xffff;
+								}
 							}
 							else
 							{
 								glyph_index = (c + segment->id_delta) & 0xffff;
 							}
 
-							array_push(&(format.glyph_ids), &(format.glyphs_ids_size), sizeof(uint16_t), &glyph_index);
+							array_push(&(format.glyph_indices), &(format.glyph_indices_size), sizeof(uint16_t), &glyph_index);
+
+							printf("Segment: %u, %u, %u, %u Glyph id: %u\n",
+								segment->start_code, segment->end_code, segment->id_delta, segment->id_range_offset, glyph_index);
 						}
 					}
                     
-                    
+					                    
                     fseek(fp, current_offset, SEEK_SET);
                     goto pass_table;
 				}
