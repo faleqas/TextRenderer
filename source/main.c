@@ -16,19 +16,23 @@ void main_loop();
 
 int main(int argc, char** argv)
 {
-	hash_table ht = {0, 10};
-	hashtable_insert(&ht, 'a', 1);
-	hashtable_insert(&ht, 'b', 1);
-	hashtable_insert(&ht, 'c', 1);
-	hashtable_insert(&ht, 'd', 1);
-	hashtable_insert(&ht, 'e', 1);
-	hashtable_insert(&ht, 'f', 1);
-	hashtable_insert(&ht, 'g', 1);
+	hash_table ht;
+	hash_table_init(&ht, 50, 4);
 
+	{
+		int val = 51;
+		//hash_table_insert(&ht, 'a', &val);
+		ht.insert(&ht, 'c', &val);
+	}
+
+	{
+		int* val_ptr = hash_table_lookup(&ht, 'c');
+		printf("c has: %d\n", *val_ptr);
+	}
     
     SDL_Init(0);
     
-	load_ttf("Consolas.ttf");
+	//load_ttf("Consolas.ttf");
 	main_loop();
     
 	SDL_Quit();
