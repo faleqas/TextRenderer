@@ -32,7 +32,7 @@ int main(int argc, char** argv)
     
     SDL_Init(0);
     
-	//load_ttf("Consolas.ttf");
+	load_ttf("Inter-Black.ttf");
 	main_loop();
     
 	SDL_Quit();
@@ -243,10 +243,17 @@ typedef struct
 	int glyph_indices_size;
 } format4;
 
-//typedef struct
-//{
-//
-//} spacing_info;
+typedef struct
+{
+	int16_t x;
+	int16_t y;
+	int16_t w;
+	int16_t h;
+
+	FWORD lsb; //left side bearing
+	FWORD rsb; //right side bearing
+
+} ch_spacing; //character spacing
 
 typedef struct
 {
@@ -309,6 +316,7 @@ void load_ttf(const char* path)
 	};
 	const int table_count = sizeof(table_order) / sizeof(const char*);
     
+	//Read tables and format
 	t_head head;
 	t_maxp maxp;
 	t_hhea hhea;
@@ -635,8 +643,8 @@ void load_ttf(const char* path)
 
 							array_push(&(format.glyph_indices), &(format.glyph_indices_size), sizeof(uint16_t), &glyph_index);
 
-							printf("Segment: %u, %u, %u, %u Glyph id: %u\n",
-								segment->start_code, segment->end_code, segment->id_delta, segment->id_range_offset, glyph_index);
+							//printf("Segment: %u, %u, %u, %u Glyph id: %u\n",
+								//segment->start_code, segment->end_code, segment->id_delta, segment->id_range_offset, glyph_index);
 						}
 					}
                     
@@ -652,6 +660,54 @@ void load_ttf(const char* path)
 		}
         
 		fseek(fp, table_records_offset, SEEK_SET);
+	}
+
+	//get spacing information for characters
+						   //double backslash to be treated as a literal '\'
+	const char alphabet[] = "!#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~";
+	int alphabet_len = sizeof(alphabet) / sizeof(char);
+
+	hash_table spacings; //map of characters to their spacing data
+	hash_table_init(&spacings, alphabet_len, sizeof(ch_spacing));
+
+	//{
+	//	ch_spacing s = { 100, 100, 100, 100, 20, 12 };
+	//	spacings.insert(&spacings, 'A', &s);
+	//}
+	//{
+	//	ch_spacing* s = (ch_spacing*)(spacings.lookup(&spacings, 'A'));
+	//	s->x = 69;
+	//}
+	//{
+	//	ch_spacing* s = (ch_spacing*)(spacings.lookup(&spacings, 'A'));
+	//	printf("%p\n", s);
+	//	printf("x: %d\ny: %d\nw: %d\nh: %d\nlsb: %d\nrsb: %d\n", s->x, s->y, s->w, s->h, s->lsb, s->rsb);
+	//}
+
+	int hmetrics_count = hmtx.metrics_size / sizeof(h_metric);
+	for (int i = 0; i < alphabet_len; i++)
+	{
+		uint16_t index = format.glyph_indices[alphabet[i]];
+		index = to_leu16(index);
+		glyph_header* glyph = glyf.glyphs + index;
+		ch_spacing spacing_info;
+
+		spacing_info.x = glyph->xmin;
+		spacing_info.y = glyph->ymin;
+
+		spacing_info.w = glyph->xmax - glyph->xmin;
+		spacing_info.h = glyph->ymax - glyph->ymin;
+
+		if (index < hmetrics_count)
+		{
+			spacing_info.lsb = hmtx.metrics[index].left_side_bearing;
+			spacing_info.rsb = hmtx.metrics[index].advance_width - spacing_info.lsb - (glyph->xmax - glyph->xmin);
+		}
+		else
+		{
+			//TODO(omar): we can get the lsb from the extra leftsidebearings array in hmtx
+			//but how do we get the rsb without the advance width ?	
+		}
 	}
     
     destroy_everything:

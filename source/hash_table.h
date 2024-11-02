@@ -13,7 +13,7 @@ typedef struct
 	size_t _entry_size; //in bytes.
 
 	void (*insert)(void* ht, char key, char* data);
-	char (*lookup)(const void* ht, char key);
+	char* (*lookup)(const void* ht, char key);
 } hash_table;
 
 
